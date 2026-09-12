@@ -62,6 +62,15 @@ def load_and_prepare(input_path: Path) -> pd.DataFrame:
         df["desc_clean"] = df["description"].map(clean_text)
         df["desc_lemma"] = lemmatize_series(df["desc_clean"], stopwords)
 
+    # Normalize to real strings BEFORE filtering. astype(str) on a column that
+    # still contains actual NaN turns each one into the literal string "nan",
+    # which is non-empty and would slip past the empty-text filter below,
+    # leaving real NaN values in `sub` that later crash TfidfVectorizer.
+    n_missing = df["desc_lemma"].isna().sum()
+    if n_missing:
+        print(f"Found {n_missing:,} missing desc_lemma value(s) — treating as empty text.")
+    df["desc_lemma"] = df["desc_lemma"].fillna("").astype(str)
+
     return df
 
 
@@ -69,7 +78,7 @@ def temporal_split(df: pd.DataFrame):
     sub = df[
         df["cvss_version"].isin([3.0, 3.1])
         & df["base_severity"].isin(SEV_ORDER)
-        & df["desc_lemma"].astype(str).str.strip().ne("")
+        & df["desc_lemma"].str.strip().ne("")
     ].copy()
 
     train = sub[sub["published_year"] < SPLIT_YEAR]
@@ -106,7 +115,7 @@ def main():
         sys.exit(
             f"Can't find {args.input}. Point --input at one of the notebook's saved "
             "*_clusters.csv files, e.g.:\n"
-            "  python train_severity_model.py --input data/nvd_cve_with_joint_clusters.csv"
+            f"  python train_severity_model.py --input data/nvd_cve_with_joint_clusters.csv"
         )
 
     df = load_and_prepare(args.input)
